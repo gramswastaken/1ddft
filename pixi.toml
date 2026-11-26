@@ -1,0 +1,15 @@
+[workspace]
+authors = ["Graham Spellman <graham.spellman99@gmail.com>"]
+channels = ['conda-forge', 'https://conda.modular.com/max',"https://repo.prefix.dev/modular-community"]
+name = "1ddft-mojo"
+platforms = ['linux-64']
+version = "0.1.0"
+preview=["pixi-build"]
+
+[tasks]
+
+[dependencies]
+python = ">=3.14.10,<3.15"
+mojo = ">=1.2.0,<2"
+matplotlib = ">=3.11.2,<4"
+numojo = { git = "https://github.com/Mojo-Numerics-and-Algorithms-group/NuMojo", tag = "v0.12.0" }
