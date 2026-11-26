@@ -29,14 +29,26 @@ def main() raises:
     var num_iterations: Int = 0
     var num_electrons = 17
     var mixing_beta: Float64 = 1.0
+    var omb: Float64 = 1.0 - mixing_beta
 
-    var ext_pot: nm.NDArray[nm.f64] = domain**4
+    var ext_pot: nm.NDArray[nm.f64] = domain**2
+
+    var hartree_kernel = 1/nm.sqrt((
+        nm.expand_dims(domain, 0) - nm.expand_dims(domain, 1)
+             )**2 + 1e-1)
+
+    var kinetic = -D2 / 2
 
     for i in range(max_steps):
         var ex_pot = exchange_pot(density)
-        var hart_pot = hartree_pot(density, domain)
+        var hart_pot = hartree_pot(density, domain, hartree_kernel)
         
-        var Hamiltonian = -D2 / 2 + nm.diagflat(ex_pot + hart_pot + ext_pot)
+        var Hamiltonian = kinetic.copy()
+        for k in range(n_grid):
+            Hamiltonian[Item(k, k)] = (
+                    Hamiltonian[Item(k,k)] + ex_pot.item(k) + ext_pot.item(k) + hart_pot.item(k)
+                    )
+
 
         # There is not currently an implementation of a complex eigenvalue algorithm in 
         # the pure-mojo libraries
@@ -50,8 +62,12 @@ def main() raises:
         var psi: nm.NDArray[nm.f64] = nm.array[nm.f64](psi_np)
         # --------------------------------------------
         ground_state_energy.append(ei.item(0))
+
+        # density = (1.0 - mixing_beta) * density + mixing_beta * new_density
         var new_density = compute_density(psi, domain, num_electrons)
-        density = (1.0 - mixing_beta) * density + mixing_beta * new_density
+        new_density *= mixing_beta
+        density *= omb 
+        density += new_density
 
         if i == 0:
             print("Initial state computed")
@@ -90,21 +106,29 @@ def compute_density(psi: nm.NDArray[nm.f64], domain: nm.NDArray[nm.f64], num_ele
     for i in range(num_levels):
         var occ = occs[i]
         var psi_i = tpsi[i]
+        var sq = psi_i**2
         var I: Float64 = nm.trapezoid(psi_i**2, domain)
-        density += Float64(occ)*(psi_i**2)/I
+        sq *= Float64(occ)/I
+        density += sq
 
     return density^
 
 def exchange_pot(density: nm.NDArray[nm.f64]) raises -> nm.NDArray[nm.f64]:
     comptime cbrt: Float64 = 1.0/3.0
-    var c: Float64 = -(3/pi)**cbrt
-    var pot: nm.NDArray[nm.f64] = c * nm.exp(nm.log(density) * cbrt)
+    comptime c: Float64 = -(3/pi)**cbrt
+    var pot: nm.NDArray[nm.f64] = density**cbrt
+    pot *= c
     return pot^
 
 
-def hartree_pot(density: nm.NDArray[nm.f64], domain: nm.NDArray[nm.f64], epsilon: Float64 = 1e-1) raises -> nm.NDArray[nm.f64]:
+def hartree_pot(density: nm.NDArray[nm.f64], domain: nm.NDArray[nm.f64], kernel: nm.NDArray[nm.f64]) raises -> nm.NDArray[nm.f64]:
     var h = domain.item(1) - domain.item(0)
-    var kernel = 1/nm.sqrt((nm.expand_dims(domain, 0) - nm.expand_dims(domain, 1))**2 + epsilon)
-    var pot = nm.sum(h* (density * kernel), axis=1)
-    return pot^
+    var n: Int = domain.size
+    var pot: nm.NDArray[nm.f64] = nm.zeros[nm.f64]([n])
 
+    for i in range(n):
+        var row = kernel[i].copy()
+        row *= density
+        row *= h
+        pot[Item(i)] = nm.sum(row)
+    return pot^
